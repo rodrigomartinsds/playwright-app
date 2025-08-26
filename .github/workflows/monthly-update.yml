@@ -1,0 +1,74 @@
+name: 🔄 Atualização Mensal Automática
+
+on:
+  schedule:
+    # Todo dia 1° do mês às 3h da manhã (UTC)
+    - cron: '0 3 1 * *'
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Forçar atualização?'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  update-dependencies:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout do código
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: 📦 Verificar atualizações
+        id: check-updates
+        run: |
+          npm outdated --json > outdated.json 2>/dev/null || true
+          if [ -s outdated.json ]; then
+            echo "updates-available=true" >> $GITHUB_OUTPUT
+            echo "🔍 Atualizações disponíveis:"
+            cat outdated.json
+          else
+            echo "updates-available=false" >> $GITHUB_OUTPUT
+            echo "✅ Todas dependências atualizadas"
+          fi
+      
+      - name: 🚀 Atualizar dependências
+        if: steps.check-updates.outputs.updates-available == 'true' || github.event.inputs.force_update == true
+        run: |
+          npm update
+          npm audit fix --force || true
+      
+      - name: 📋 Verificar mudanças
+        id: changes
+        run: |
+          if git diff --quiet package*.json; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: 💾 Commit atualizações
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add package*.json
+          git commit -m "📦 Atualização automática - $(date '+%d/%m/%Y')"
+          git push
+      
+      - name: 📊 Relatório
+        run: |
+          if [ "${{ steps.changes.outputs.changed }}" == "true" ]; then
+            echo "🎉 Dependências atualizadas!"
+          else
+            echo "💤 Nenhuma atualização necessária"
+          fi
